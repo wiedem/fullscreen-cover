@@ -1,6 +1,5 @@
 import SwiftUI
 
-@MainActor
 struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: View {
     @State private var isSheetPresented: Bool
     @State private var showModalContent = false
