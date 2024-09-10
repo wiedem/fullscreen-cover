@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// A proxy that supports changing the presentations state of a modal view programmatically.
 ///
@@ -23,6 +23,8 @@ public final class PresentationProxy: ObservableObject, Sendable {
 
     /// Starts the transition to display the modal.
     ///
+    /// This method returns before the modal content and the associated transition are displayed.
+    ///
     /// - Note: This method throws a `CancellationError` if the modal view is currently visible or in the process of becoming visible.
     public func present() async throws {
         guard isPresented == false, presentationContinuation == nil else {
@@ -36,6 +38,11 @@ public final class PresentationProxy: ObservableObject, Sendable {
     }
 
     /// Starts the transition to dismiss the modal.
+    ///
+    /// This method returns after the modal content is no longer visible and the associated transition has been completed.
+    ///
+    /// Running appearance transitions triggered by ``present()`` are not aborted by a call to `dismiss`.
+    /// If `dismiss` is called while a transition triggered by ``present()`` is still running, the modal view automatically executes the dismiss transition once the appearance transition has been completed.
     ///
     /// - Note: This method throws a `CancellationError` if the modal view is currently not visible or in the process of becoming dismissed.
     public func dismiss() async throws {

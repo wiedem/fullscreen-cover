@@ -26,7 +26,7 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
                     Group {
                         if showModalContent {
                             modalContent()
-                                .onAppear {
+                                .task {
                                     presentationProxy.onWillPresent()
                                 }
                                 .onDisappear {
@@ -35,7 +35,7 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
                                 }
                         }
                     }
-                    .onAppear {
+                    .task {
                         guard showModalContent == false else { return }
                         // The binding value may have changed while the view was in the display process.
                         // If this is the case, immediately set the presentation state, because the onChange handler won't be triggered again.
@@ -44,9 +44,7 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
                             return
                         }
 
-                        withAnimation(animation) {
-                            showModalContent = true
-                        }
+                        showModalContent = true
                     }
                 }
                 .transaction { transaction in
@@ -65,11 +63,10 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
                         }
 
                         // Don't immediately change the state of the modal wrapper but wait for the modal content to disappear.
-                        withAnimation(animation) {
-                            showModalContent = false
-                        }
+                        showModalContent = false
                     }
                 }
+                .animation(animation, value: showModalContent)
         }
     }
 

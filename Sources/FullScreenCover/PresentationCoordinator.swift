@@ -31,6 +31,8 @@ import SwiftUI
 ///     }
 /// }
 /// ```
+///
+/// - Note: The ``PresentationProxy`` instance is automatically made available to the subviews of the content view and can be accessed with an [EnvironmentObject](https://developer.apple.com/documentation/swiftui/environmentobject) property wrapper.
 @MainActor
 public struct PresentationCoordinator<Content>: View where Content: View {
     @StateObject private var presentationProxy = PresentationProxy()
@@ -39,6 +41,7 @@ public struct PresentationCoordinator<Content>: View where Content: View {
 
     public var body: some View {
         content(presentationProxy)
+            .environmentObject(presentationProxy)
     }
 
     /// Creates an instance that can coordinate the modal full-screen presentations used by its child views.
