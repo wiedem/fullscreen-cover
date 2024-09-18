@@ -12,9 +12,7 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
     private var onDidDismiss: (() -> Void)?
 
     func body(content: Content) -> some View {
-        Group {
-            content
-
+        ZStack {
             Color.clear
                 .frame(width: 0, height: 0)
                 .fullScreenCover(
@@ -67,6 +65,8 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
                     }
                 }
                 .animation(animation, value: showModalContent)
+
+            content
         }
     }
 
