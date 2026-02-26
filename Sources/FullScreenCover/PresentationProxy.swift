@@ -1,4 +1,4 @@
-import SwiftUI
+public import SwiftUI
 
 /// A proxy that supports changing the presentations state of a modal view programmatically.
 ///
@@ -6,67 +6,107 @@ import SwiftUI
 /// Instead, use a ``PresentationCoordinator`` in your view hierarchy to get an instance and pass it to  a ``FullScreenCoverModifier`` or the ``SwiftUICore/View/fullScreenCover(presentation:animation:content:)`` method.
 @MainActor
 public final class PresentationProxy: ObservableObject, Sendable {
-    @Published public private(set) var isPresented: Bool = false
-    private var presentationContinuation: CheckedContinuation<Void, any Error>?
-    private var dismissContinuation: CheckedContinuation<Void, any Error>?
+    /// The current phase of the presentation lifecycle.
+    @Published public private(set) var phase: PresentationPhase = .idle
 
-    deinit {
-        if let presentationContinuation {
-            self.presentationContinuation = nil
-            presentationContinuation.resume(throwing: CancellationError())
-        }
-        if let dismissContinuation {
-            self.dismissContinuation = nil
-            dismissContinuation.resume(throwing: CancellationError())
+    /// Whether the modal is currently presented or transitioning to be presented.
+    ///
+    /// This is a convenience property derived from ``phase``.
+    /// It returns `true` when the phase is ``PresentationPhase/presenting`` or ``PresentationPhase/presented``.
+    public var isPresented: Bool {
+        switch phase {
+        case .idle, .dismissing:
+            false
+        case .presenting, .presented:
+            true
         }
     }
 
+    private let broadcast = AsyncBroadcast()
+
     /// Starts the transition to display the modal.
     ///
-    /// This method returns before the modal content and the associated transition are displayed.
+    /// This method returns once the phase has reached ``PresentationPhase/presented``.
     ///
-    /// - Note: This method throws a `CancellationError` if the modal view is currently visible or in the process of becoming visible.
+    /// - If the phase is ``PresentationPhase/idle``, the transition starts immediately.
+    /// - If the phase is ``PresentationPhase/presented``, this method returns immediately.
+    /// - If the phase is ``PresentationPhase/presenting``, this method waits for the ongoing transition to complete.
+    /// - If the phase is ``PresentationPhase/dismissing``, this method waits for the dismiss to finish, then starts a new presentation.
+    ///
+    /// - Note: If the calling task is cancelled, this method throws `CancellationError`,
+    ///   but the transition itself continues unaffected.
     public func present() async throws {
-        guard isPresented == false, presentationContinuation == nil else {
-            throw CancellationError()
-        }
-
-        try await withCheckedThrowingContinuation { continuation in
-            presentationContinuation = continuation
-            isPresented = true
+        while true {
+            switch phase {
+            case .idle:
+                phase = .presenting
+                try await broadcast.wait()
+                return
+            case .presented:
+                return
+            case .presenting, .dismissing:
+                try await broadcast.wait()
+            }
         }
     }
 
     /// Starts the transition to dismiss the modal.
     ///
-    /// This method returns after the modal content is no longer visible and the associated transition has been completed.
+    /// This method returns once the phase has reached ``PresentationPhase/idle``.
     ///
-    /// Running appearance transitions triggered by ``present()`` are not aborted by a call to `dismiss`.
-    /// If `dismiss` is called while a transition triggered by ``present()`` is still running, the modal view automatically executes the dismiss transition once the appearance transition has been completed.
+    /// - If the phase is ``PresentationPhase/presented``, the transition starts immediately.
+    /// - If the phase is ``PresentationPhase/idle``, this method returns immediately.
+    /// - If the phase is ``PresentationPhase/dismissing``, this method waits for the ongoing transition to complete.
+    /// - If the phase is ``PresentationPhase/presenting``, the presentation is cancelled and
+    ///   the phase resets to ``PresentationPhase/idle``. Pending ``present()`` callers receive a `CancellationError`.
     ///
-    /// - Note: This method throws a `CancellationError` if the modal view is currently not visible or in the process of becoming dismissed.
+    /// - Note: If the calling task is cancelled, this method throws `CancellationError`,
+    ///   but the transition itself continues unaffected.
     public func dismiss() async throws {
-        guard isPresented, dismissContinuation == nil else {
-            throw CancellationError()
-        }
-
-        try await withCheckedThrowingContinuation { continuation in
-            dismissContinuation = continuation
-            isPresented = false
+        while true {
+            switch phase {
+            case .presented:
+                phase = .dismissing
+                try await broadcast.wait()
+                return
+            case .idle:
+                return
+            case .dismissing:
+                try await broadcast.wait()
+            case .presenting:
+                cancelPresentation()
+                return
+            }
         }
     }
-}
 
-extension PresentationProxy {
+    /// Cancels all pending transitions and resets the proxy to the idle state.
+    ///
+    /// All tasks waiting on ``present()`` or ``dismiss()`` are resumed with a `CancellationError`.
+    /// This is called automatically when the ``PresentationCoordinator`` view disappears.
+    func cancelAll() {
+        broadcast.cancelAll()
+        phase = .idle
+    }
+
     func onWillPresent() {
-        guard let presentationContinuation else { return }
-        self.presentationContinuation = nil
-        presentationContinuation.resume()
+        guard phase == .presenting else { return }
+        phase = .presented
+        broadcast.resumeAll()
     }
 
     func onDidDismiss() {
-        guard let dismissContinuation else { return }
-        self.dismissContinuation = nil
-        dismissContinuation.resume()
+        guard phase == .dismissing else { return }
+        phase = .idle
+        broadcast.resumeAll()
+    }
+}
+
+// MARK: - Private
+
+private extension PresentationProxy {
+    func cancelPresentation() {
+        broadcast.cancelAll()
+        phase = .idle
     }
 }

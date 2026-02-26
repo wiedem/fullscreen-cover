@@ -1,6 +1,6 @@
-import SwiftUI
+public import SwiftUI
 
-struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: View {
+struct FullScreenCoverModifier<ModalContent: View>: ViewModifier {
     @State private var isSheetPresented: Bool
     @State private var showModalContent = false
     @ObservedObject private var presentationProxy: PresentationProxy
@@ -8,10 +8,10 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
     @ViewBuilder private let modalContent: () -> ModalContent
 
     private let animation: Animation?
-    private var onWillPresent: (() -> Void)?
-    private var onDidDismiss: (() -> Void)?
 
     func body(content: Content) -> some View {
+        // A ZStack isolates the .fullScreenCover trigger from the content view,
+        // preventing safe area insets from propagating to the content.
         ZStack {
             Color.clear
                 .frame(width: 0, height: 0)
@@ -25,18 +25,20 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
                         if showModalContent {
                             modalContent()
                                 .task {
+                                    // The modal content has appeared. Notify the proxy so that present() callers are resumed.
                                     presentationProxy.onWillPresent()
                                 }
                                 .onDisappear {
+                                    // The custom dismiss animation has finished. Close the native container so that onDismiss fires.
                                     guard isSheetPresented else { return }
                                     isSheetPresented = false
                                 }
                         }
                     }
                     .task {
-                        guard showModalContent == false else { return }
-                        // The binding value may have changed while the view was in the display process.
-                        // If this is the case, immediately set the presentation state, because the onChange handler won't be triggered again.
+                        // The native container has appeared. Check whether the proxy still wants to present.
+                        // A rapid present/dismiss could have changed the state before the container was ready.
+                        guard !showModalContent else { return }
                         guard presentationProxy.isPresented else {
                             isSheetPresented = false
                             return
@@ -45,25 +47,27 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
                         showModalContent = true
                     }
                 }
-                .transaction { transaction in
-                    // Disable the standard SwiftUI animation for fullscreen modal presentations.
-                    transaction.disablesAnimations = true
-                }
                 .onChange(of: presentationProxy.isPresented) { newValue in
                     if newValue {
-                        // Immediately show the modal content wrapper, the delayed setting of showModalContent will trigger the actual animation of the model content transition.
-                        isSheetPresented = true
+                        // Suppress the native slide-up animation. The custom transition is driven by showModalContent.
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            isSheetPresented = true
+                        }
                     } else {
-                        // Check if the content is marked as being visible. If this is not the case then the binding changed before the modal content did have a chance to become visible.
                         guard showModalContent else {
+                            // Content never appeared. Close the container directly.
                             isSheetPresented = false
                             return
                         }
 
-                        // Don't immediately change the state of the modal wrapper but wait for the modal content to disappear.
+                        // Hide the content first to trigger the custom dismiss animation. Once it finishes,
+                        // onDisappear closes the native container.
                         showModalContent = false
                     }
                 }
+                // Drives the custom present/dismiss transition inside the fullscreen cover.
                 .animation(animation, value: showModalContent)
 
             content
@@ -80,13 +84,6 @@ struct FullScreenCoverModifier<ModalContent>: ViewModifier where ModalContent: V
         self.presentationProxy = presentationProxy
         self.animation = animation
         self.modalContent = modalContent
-
-        onWillPresent = { [weak presentationProxy] in
-            presentationProxy?.onWillPresent()
-        }
-        onDidDismiss = { [weak presentationProxy] in
-            presentationProxy?.onDidDismiss()
-        }
     }
 }
 
