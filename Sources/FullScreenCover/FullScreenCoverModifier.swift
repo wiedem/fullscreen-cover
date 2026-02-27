@@ -76,7 +76,7 @@ struct FullScreenCoverModifier<ModalContent: View>: ViewModifier {
 
     init(
         presentationProxy: PresentationProxy,
-        animation: Animation? = nil,
+        animation: Animation? = .default,
         @ViewBuilder modalContent: @escaping () -> ModalContent
     ) {
         _isSheetPresented = .init(initialValue: presentationProxy.isPresented)
@@ -96,7 +96,7 @@ public extension View {
     ///   - content: A closure that returns the content of the modal view.
     func fullScreenCover(
         presentation: PresentationProxy,
-        animation: Animation? = nil,
+        animation: Animation? = .default,
         @ViewBuilder content: @escaping () -> some View
     ) -> some View {
         modifier(
