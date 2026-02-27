@@ -1,5 +1,5 @@
 /// The current phase of the presentation lifecycle managed by a ``PresentationProxy``.
-public enum PresentationPhase: Sendable {
+public enum PresentationPhase: Equatable, Sendable {
     /// No modal is active.
     case idle
     /// A presentation transition is in progress. Waiting for the modal content to appear.

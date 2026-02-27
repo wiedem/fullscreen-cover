@@ -3,12 +3,18 @@ import Testing
 
 @MainActor
 @Suite("PresentationProxy")
-struct PresentationProxyTests {
+final class PresentationProxyTests {
+    private let proxy = PresentationProxy()
+
+    @MainActor
+    deinit {
+        proxy.cancelAll()
+    }
+
     // MARK: - Initial State
 
     @Test("Initial phase is idle")
     func initialState() {
-        let proxy = PresentationProxy()
         #expect(proxy.phase == .idle)
         #expect(proxy.isPresented == false)
     }
@@ -17,40 +23,50 @@ struct PresentationProxyTests {
 
     @Test("present() transitions from idle to presenting, then presented after onWillPresent")
     func presentPhaseTransitions() async throws {
-        let proxy = PresentationProxy()
+        // Collect all three expected phase values.
+        let phases = collectValues(from: proxy.$phase, max: 3)
 
-        async let presentResult: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
+        // Wait for the next phase change after idle.
+        let nextPhaseTask = collectValues(from: proxy.$phase.dropFirst(), max: 1)
 
-        #expect(proxy.phase == .presenting)
-        #expect(proxy.isPresented == true)
+        // Start presenting.
+        Task { try await proxy.present() }
 
+        // Verify the phase changed to presenting.
+        let nextPhase = try #require(try await nextPhaseTask.value.first)
+        #expect(nextPhase == .presenting)
+
+        // Complete the presentation.
         proxy.onWillPresent()
-        try await presentResult
 
-        #expect(proxy.phase == .presented)
-        #expect(proxy.isPresented == true)
+        // Verify the full phase transition sequence.
+        #expect(try await phases.value == [.idle, .presenting, .presented])
     }
 
     @Test("dismiss() transitions from presented to dismissing, then idle after onDidDismiss")
     func dismissPhaseTransitions() async throws {
-        let proxy = PresentationProxy()
+        // Reach presented state.
+        try await Self.reachPresentedState(proxy)
 
-        async let presentResult: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
-        proxy.onWillPresent()
-        try await presentResult
+        // Collect all expected phase values from presented onward.
+        let phases = collectValues(from: proxy.$phase, max: 3)
 
-        async let dismissResult: Void = proxy.dismiss()
-        try await Task.sleep(nanoseconds: 10_000_000)
+        // Wait for the next phase change after presented.
+        let nextPhaseTask = collectValues(from: proxy.$phase.dropFirst(), max: 1)
 
-        #expect(proxy.phase == .dismissing)
+        // Start dismissing.
+        Task { try await proxy.dismiss() }
+
+        // Verify the phase changed to dismissing.
+        let nextPhase = try #require(try await nextPhaseTask.value.first)
+        #expect(nextPhase == .dismissing)
         #expect(proxy.isPresented == false)
 
+        // Complete the dismiss.
         proxy.onDidDismiss()
-        try await dismissResult
 
-        #expect(proxy.phase == .idle)
+        // Verify the full phase transition sequence.
+        #expect(try await phases.value == [.presented, .dismissing, .idle])
         #expect(proxy.isPresented == false)
     }
 
@@ -58,20 +74,16 @@ struct PresentationProxyTests {
 
     @Test("present() is no-op when in presented phase")
     func presentIsNoOpWhenPresented() async throws {
-        let proxy = PresentationProxy()
+        // Reach presented state.
+        try await Self.reachPresentedState(proxy)
 
-        async let presentResult: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
-        proxy.onWillPresent()
-        try await presentResult
-
+        // Calling present() again should be a no-op.
         try await proxy.present()
         #expect(proxy.phase == .presented)
     }
 
     @Test("dismiss() is no-op when in idle phase")
     func dismissIsNoOpWhenIdle() async throws {
-        let proxy = PresentationProxy()
         try await proxy.dismiss()
         #expect(proxy.phase == .idle)
     }
@@ -80,54 +92,37 @@ struct PresentationProxyTests {
 
     @Test("present() during presenting waits for presentation to complete")
     func presentWaitsDuringPresenting() async throws {
-        let proxy = PresentationProxy()
-
         // Start presenting.
-        async let firstPresent: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
+        let firstTask = try await Self.startPresenting(proxy)
+
+        // Second present should suspend and wait - no phase change.
+        let secondTask = Task { try await proxy.present() }
         #expect(proxy.phase == .presenting)
 
-        // Second present should suspend and wait.
-        let secondPresentTask = Task {
-            try await proxy.present()
-        }
-        try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(proxy.phase == .presenting)
-
-        // Complete the presentation — both callers should finish.
+        // Complete the presentation - both callers should finish.
         proxy.onWillPresent()
-        try await firstPresent
-        try await secondPresentTask.value
+        try await firstTask.value
+        try await secondTask.value
 
         #expect(proxy.phase == .presented)
     }
 
     @Test("dismiss() during dismissing waits for dismiss to complete")
     func dismissWaitsDuringDismissing() async throws {
-        let proxy = PresentationProxy()
-
-        // Get to presented state.
-        async let presentResult: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
-        proxy.onWillPresent()
-        try await presentResult
+        // Reach presented state.
+        try await Self.reachPresentedState(proxy)
 
         // Start dismissing.
-        async let firstDismiss: Void = proxy.dismiss()
-        try await Task.sleep(nanoseconds: 10_000_000)
+        let firstTask = try await Self.startDismissing(proxy)
+
+        // Second dismiss should suspend and wait - no phase change.
+        let secondTask = Task { try await proxy.dismiss() }
         #expect(proxy.phase == .dismissing)
 
-        // Second dismiss should suspend and wait.
-        let secondDismissTask = Task {
-            try await proxy.dismiss()
-        }
-        try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(proxy.phase == .dismissing)
-
-        // Complete the dismiss — both callers should finish.
+        // Complete the dismiss - both callers should finish.
         proxy.onDidDismiss()
-        try await firstDismiss
-        try await secondDismissTask.value
+        try await firstTask.value
+        try await secondTask.value
 
         #expect(proxy.phase == .idle)
     }
@@ -136,38 +131,28 @@ struct PresentationProxyTests {
 
     @Test("present() during dismissing waits for dismiss then presents")
     func presentWaitsDuringDismissing() async throws {
-        let proxy = PresentationProxy()
+        // Collect all expected phases: idle -> presenting -> presented -> dismissing -> idle -> presenting.
+        let allPhases = collectValues(from: proxy.$phase, max: 6)
 
-        // Present and reach .presented state.
-        async let presentResult: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
-        proxy.onWillPresent()
-        try await presentResult
+        // Reach presented state.
+        try await Self.reachPresentedState(proxy)
 
         // Start dismissing.
-        async let dismissResult: Void = proxy.dismiss()
-        try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(proxy.phase == .dismissing)
+        let dismissTask = try await Self.startDismissing(proxy)
 
-        // Call present() while dismissing — it should suspend and wait.
-        let secondPresentTask = Task {
-            try await proxy.present()
-        }
-        try await Task.sleep(nanoseconds: 10_000_000)
+        // Call present() while dismissing - it should suspend and wait.
+        let secondPresentTask = Task { try await proxy.present() }
 
-        // Phase is still dismissing because present() is waiting.
-        #expect(proxy.phase == .dismissing)
-
-        // Complete the dismiss — this should unblock the pending present().
+        // Complete the dismiss - this should unblock the pending present().
         proxy.onDidDismiss()
-        try await dismissResult
-        try await Task.sleep(nanoseconds: 10_000_000)
+        try await dismissTask.value
 
-        // The pending present() should now be in presenting phase.
-        #expect(proxy.phase == .presenting)
+        // Wait for the re-presentation to reach presenting.
+        let phases = try await allPhases.value
+        #expect(phases == [.idle, .presenting, .presented, .dismissing, .idle, .presenting])
         #expect(proxy.isPresented == true)
 
-        // Complete the presentation.
+        // Complete the re-presentation.
         proxy.onWillPresent()
         try await secondPresentTask.value
 
@@ -176,62 +161,32 @@ struct PresentationProxyTests {
 
     @Test("dismiss() during presenting cancels presentation and returns to idle")
     func dismissCancelsPresentationInProgress() async throws {
-        let proxy = PresentationProxy()
-
-        // Task returns true if present() threw CancellationError.
-        let presentTask = Task { () -> Bool in
-            do {
-                try await proxy.present()
-                return false
-            } catch is CancellationError {
-                return true
-            } catch {
-                return false
-            }
-        }
-
-        try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(proxy.phase == .presenting)
+        // Start presenting.
+        let presentTask = try await Self.startPresenting(proxy)
 
         // dismiss() should cancel the pending present() and return immediately.
         try await proxy.dismiss()
         #expect(proxy.phase == .idle)
         #expect(proxy.isPresented == false)
 
-        // Wait for the present task to finish processing the cancellation.
-        let presentThrew = await presentTask.value
-        #expect(presentThrew)
+        // The present task should have been cancelled.
+        let result = await presentTask.result
+        #expect(throws: CancellationError.self) { try result.get() }
     }
 
     // MARK: - Task Cancellation
 
     @Test("present() throws CancellationError when task is cancelled, but transition continues")
     func presentThrowsOnTaskCancellation() async throws {
-        let proxy = PresentationProxy()
+        // Start presenting.
+        let task = try await Self.startPresenting(proxy)
 
-        let task = Task { () -> Bool in
-            do {
-                try await proxy.present()
-                return false
-            } catch is CancellationError {
-                return true
-            } catch {
-                return false
-            }
-        }
-
-        try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(proxy.phase == .presenting)
-
+        // Cancel the task.
         task.cancel()
+        let result = await task.result
+        #expect(throws: CancellationError.self) { try result.get() }
 
-        let threw = await task.value
-        #expect(threw)
-
-        // Allow the cancel handler's MainActor task to process.
-        try await Task.sleep(nanoseconds: 10_000_000)
-
-        // Transition continues despite task cancellation — no rollback.
+        // Transition continues despite task cancellation - no rollback.
         #expect(proxy.phase == .presenting)
         #expect(proxy.isPresented == true)
 
@@ -242,37 +197,18 @@ struct PresentationProxyTests {
 
     @Test("dismiss() throws CancellationError when task is cancelled, but transition continues")
     func dismissThrowsOnTaskCancellation() async throws {
-        let proxy = PresentationProxy()
+        // Reach presented state.
+        try await Self.reachPresentedState(proxy)
 
-        // Get to presented state.
-        async let presentResult: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
-        proxy.onWillPresent()
-        try await presentResult
+        // Start dismissing.
+        let task = try await Self.startDismissing(proxy)
 
-        let task = Task { () -> Bool in
-            do {
-                try await proxy.dismiss()
-                return false
-            } catch is CancellationError {
-                return true
-            } catch {
-                return false
-            }
-        }
-
-        try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(proxy.phase == .dismissing)
-
+        // Cancel the task.
         task.cancel()
+        let result = await task.result
+        #expect(throws: CancellationError.self) { try result.get() }
 
-        let threw = await task.value
-        #expect(threw)
-
-        // Allow the cancel handler's MainActor task to process.
-        try await Task.sleep(nanoseconds: 10_000_000)
-
-        // Transition continues despite task cancellation — no rollback.
+        // Transition continues despite task cancellation - no rollback.
         #expect(proxy.phase == .dismissing)
         #expect(proxy.isPresented == false)
 
@@ -285,70 +221,88 @@ struct PresentationProxyTests {
 
     @Test("onWillPresent() resumes continuation and sets phase to presented")
     func onWillPresentResumesContinuation() async throws {
-        let proxy = PresentationProxy()
+        // Start presenting.
+        let task = try await Self.startPresenting(proxy)
 
-        async let presentResult: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
-
+        // Complete the presentation.
         proxy.onWillPresent()
-        try await presentResult
+        try await task.value
 
         #expect(proxy.phase == .presented)
     }
 
     @Test("onDidDismiss() resumes continuation and sets phase to idle")
     func onDidDismissResumesContinuation() async throws {
-        let proxy = PresentationProxy()
+        // Reach presented state.
+        try await Self.reachPresentedState(proxy)
 
-        async let presentResult: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
-        proxy.onWillPresent()
-        try await presentResult
+        // Start dismissing.
+        let task = try await Self.startDismissing(proxy)
 
-        async let dismissResult: Void = proxy.dismiss()
-        try await Task.sleep(nanoseconds: 10_000_000)
-
+        // Complete the dismiss.
         proxy.onDidDismiss()
-        try await dismissResult
+        try await task.value
 
         #expect(proxy.phase == .idle)
     }
 
     @Test("onWillPresent() is no-op without pending continuation")
     func onWillPresentNoOpWithoutContinuation() {
-        let proxy = PresentationProxy()
         proxy.onWillPresent()
         #expect(proxy.phase == .idle)
     }
 
     @Test("onDidDismiss() is no-op without pending continuation")
     func onDidDismissNoOpWithoutContinuation() {
-        let proxy = PresentationProxy()
         proxy.onDidDismiss()
         #expect(proxy.phase == .idle)
     }
 
     // MARK: - Full Lifecycle
 
-    @Test("Full lifecycle: idle → presenting → presented → dismissing → idle")
+    @Test("Full lifecycle: idle -> presenting -> presented -> dismissing -> idle")
     func fullLifecycle() async throws {
-        let proxy = PresentationProxy()
-        #expect(proxy.phase == .idle)
+        // Collect all five expected phase values.
+        let phases = collectValues(from: proxy.$phase, max: 5)
 
-        async let presentResult: Void = proxy.present()
-        try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(proxy.phase == .presenting)
+        // Reach presented state.
+        try await Self.reachPresentedState(proxy)
 
-        proxy.onWillPresent()
-        try await presentResult
-        #expect(proxy.phase == .presented)
+        // Start dismissing.
+        try await Self.startDismissing(proxy)
 
-        async let dismissResult: Void = proxy.dismiss()
-        try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(proxy.phase == .dismissing)
-
+        // Complete the dismiss.
         proxy.onDidDismiss()
-        try await dismissResult
-        #expect(proxy.phase == .idle)
+
+        // Verify the full lifecycle sequence.
+        #expect(try await phases.value == [.idle, .presenting, .presented, .dismissing, .idle])
+    }
+}
+
+// MARK: - Private Helpers
+
+private extension PresentationProxyTests {
+    /// Starts presenting and waits until the phase reaches `.presenting`.
+    @discardableResult
+    static func startPresenting(_ proxy: PresentationProxy) async throws -> Task<Void, any Error> {
+        let presentingPhase = collectValues(from: proxy.$phase.dropFirst(), max: 1)
+        let task = Task { try await proxy.present() }
+        _ = try await presentingPhase.value
+        return task
+    }
+
+    /// Starts dismissing and waits until the phase reaches `.dismissing`.
+    @discardableResult
+    static func startDismissing(_ proxy: PresentationProxy) async throws -> Task<Void, any Error> {
+        let dismissingPhase = collectValues(from: proxy.$phase.dropFirst(), max: 1)
+        let task = Task { try await proxy.dismiss() }
+        _ = try await dismissingPhase.value
+        return task
+    }
+
+    /// Transitions the proxy from idle to presented.
+    static func reachPresentedState(_ proxy: PresentationProxy) async throws {
+        try await startPresenting(proxy)
+        proxy.onWillPresent()
     }
 }

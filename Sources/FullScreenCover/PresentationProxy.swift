@@ -9,20 +9,12 @@ public final class PresentationProxy: ObservableObject, Sendable {
     /// The current phase of the presentation lifecycle.
     @Published public private(set) var phase: PresentationPhase = .idle
 
-    /// Whether the modal is currently presented or transitioning to be presented.
-    ///
-    /// This is a convenience property derived from ``phase``.
-    /// It returns `true` when the phase is ``PresentationPhase/presenting`` or ``PresentationPhase/presented``.
-    public var isPresented: Bool {
-        switch phase {
-        case .idle, .dismissing:
-            false
-        case .presenting, .presented:
-            true
-        }
-    }
-
     private let broadcast = AsyncBroadcast()
+
+    @MainActor
+    deinit {
+        cancelAll()
+    }
 
     /// Starts the transition to display the modal.
     ///
@@ -79,11 +71,24 @@ public final class PresentationProxy: ObservableObject, Sendable {
             }
         }
     }
+}
 
-    /// Cancels all pending transitions and resets the proxy to the idle state.
+public extension PresentationProxy {
+    /// Whether the modal is currently presented or transitioning to be presented.
     ///
-    /// All tasks waiting on ``present()`` or ``dismiss()`` are resumed with a `CancellationError`.
-    /// This is called automatically when the ``PresentationCoordinator`` view disappears.
+    /// This is a convenience property derived from ``phase``.
+    /// It returns `true` when the phase is ``PresentationPhase/presenting`` or ``PresentationPhase/presented``.
+    var isPresented: Bool {
+        switch phase {
+        case .idle, .dismissing:
+            false
+        case .presenting, .presented:
+            true
+        }
+    }
+}
+
+extension PresentationProxy {
     func cancelAll() {
         broadcast.cancelAll()
         phase = .idle
