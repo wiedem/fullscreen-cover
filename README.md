@@ -1,6 +1,6 @@
 # FullScreenCover
 
-![Swift 6.0](https://img.shields.io/badge/Swift-6.0-orange)
+![Swift 6.1](https://img.shields.io/badge/Swift-6.1-orange)
 ![iOS 16.4+](https://img.shields.io/badge/iOS-16.4%2B-blue)
 ![Swift Package Manager](https://img.shields.io/badge/SPM-compatible-brightgreen)
 ![MIT License](https://img.shields.io/badge/License-MIT-yellow)
@@ -130,8 +130,8 @@ dependencies: [
 ### Requirements
 
 - iOS 16.4+
-- Swift 6.0+
-- Xcode 16+
+- Swift 6.1+
+- Xcode 16.3+
 
 ## Contributing
 

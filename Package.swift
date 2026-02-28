@@ -1,11 +1,7 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 
-let commonSwiftSettings: [SwiftSetting] = [
-    .enableUpcomingFeature("ExistentialAny"),
-    .enableUpcomingFeature("InternalImportsByDefault"),
-    .enableUpcomingFeature("StrictConcurrency"),
-]
+let commonSwiftSettings: [SwiftSetting] = []
 
 let package = Package(
     name: "FullScreenCover",
