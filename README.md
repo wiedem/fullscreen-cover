@@ -21,7 +21,7 @@ Add `import FullScreenCover` to your source code. Wrap your view with a `Present
 
 ### Custom Transition Animations
 
-Use **any SwiftUI transition** combined with a transparent presentation background:
+Use **any SwiftUI transition**:
 
 ```swift
 import FullScreenCover
@@ -47,7 +47,6 @@ struct DemoView: View {
                         }
                     }
                 }
-                .presentationBackground(Color.clear)
                 .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
         }
@@ -57,7 +56,7 @@ struct DemoView: View {
 
 Use the [transition(_:)](https://developer.apple.com/documentation/swiftui/view/transition%28_%3A%29-5h5h0) modifier on your modal content to define your custom animation. The `animation` parameter on `fullScreenCover` controls the timing.
 
-Setting `.presentationBackground(Color.clear)` is required for custom transitions. Without it, the native opaque background covers the transition effect.
+The presentation background is automatically set to transparent so that custom transitions render correctly. You can override it by applying `.presentationBackground(_:)` to your modal content.
 
 ### Async Coordination
 

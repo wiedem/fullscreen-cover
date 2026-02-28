@@ -35,6 +35,7 @@ struct FullScreenCoverModifier<ModalContent: View>: ViewModifier {
                                 }
                         }
                     }
+                    .presentationBackground(Color.clear)
                     .task {
                         // The native container has appeared. Check whether the proxy still wants to present.
                         // A rapid present/dismiss could have changed the state before the container was ready.

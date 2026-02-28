@@ -19,7 +19,6 @@ public import SwiftUI
 ///                 Text("Custom modal content")
 ///                     .font(.title)
 ///             }
-///             .presentationBackground(Color.clear)
 ///             .transition(.scale(scale: 0.8).combined(with: .opacity))
 ///         }
 ///     }
@@ -92,7 +91,6 @@ public struct PresentationCoordinator<Content: View>: View {
                 }
                 .padding()
             }
-            .presentationBackground(Color.clear)
             .transition(.scale(scale: 0.8).combined(with: .opacity))
         }
     }
@@ -147,7 +145,6 @@ public struct PresentationCoordinator<Content: View>: View {
                         }
                         .padding()
                     }
-                    .presentationBackground(Color.clear)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
