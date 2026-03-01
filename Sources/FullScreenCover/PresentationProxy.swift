@@ -11,10 +11,14 @@ public final class PresentationProxy: ObservableObject, Sendable {
 
     private let broadcast = AsyncBroadcast()
 
+    // Isolated deinit requires Swift 6.2+. On older compilers, AsyncBroadcast.deinit
+    // handles continuation cleanup, so explicit cancellation here is not strictly necessary.
+    #if compiler(>=6.2)
     @MainActor
     deinit {
         cancelAll()
     }
+    #endif
 
     /// Starts the transition to display the modal.
     ///

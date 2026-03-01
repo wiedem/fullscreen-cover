@@ -6,10 +6,12 @@ import Testing
 final class PresentationProxyTests {
     private let proxy = PresentationProxy()
 
+    #if compiler(>=6.2)
     @MainActor
     deinit {
         proxy.cancelAll()
     }
+    #endif
 
     // MARK: - Initial State
 
